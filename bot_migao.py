@@ -150,19 +150,40 @@ class MiGaoApp:
 
         objetivo = None
         if candidatos:
-            # Si apareciese más de una zona verde grande, usamos la mayor.
-            area, x, y, ancho, alto = max(candidatos, key=lambda item: item[0])
+            # Priorizamos el Mi Gao mas cercano al centro de la pantalla,
+            # que usamos como referencia aproximada de la posicion del personaje.
+            centro_pantalla_x = REGION["width"] // 2
+            centro_pantalla_y = REGION["height"] // 2
+
+            def distancia_al_personaje(candidato):
+                _, x, y, ancho, alto = candidato
+                cx = x + ancho // 2
+                cy = y + alto // 2
+                return (cx - centro_pantalla_x) ** 2 + (cy - centro_pantalla_y) ** 2
+
+            area, x, y, ancho, alto = min(
+                candidatos, key=distancia_al_personaje
+            )
             centro_x = x + ancho // 2
             centro_y = y + alto // 2
             objetivo = (centro_x, centro_y)
 
+            # Marca el centro de referencia y resalta el objetivo elegido.
+            cv2.drawMarker(
+                vista,
+                (centro_pantalla_x, centro_pantalla_y),
+                (0, 255, 255),
+                cv2.MARKER_CROSS,
+                18,
+                1
+            )
             cv2.rectangle(
                 vista, (x, y), (x + ancho, y + alto), (0, 0, 255), 2
             )
             cv2.circle(vista, objetivo, 5, (255, 0, 0), -1)
             cv2.putText(
                 vista,
-                f"Mi Gao ({centro_x}, {centro_y})",
+                f"Mi Gao prioritario ({centro_x}, {centro_y})",
                 (x, max(20, y - 8)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
