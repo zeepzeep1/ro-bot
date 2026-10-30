@@ -5,6 +5,7 @@ import time
 import cv2
 import mss
 import numpy as np
+import pydirectinput
 
 
 # ============================================================
@@ -23,6 +24,13 @@ VERDE_MAX = np.array([95, 255, 255])
 AREA_MINIMA = 1500
 
 INTERVALO_MS = 20
+
+# Acciones del bot (segundos)
+INTERVALO_ATAQUE = 0.45
+INTERVALO_FLY_WING = 1.50
+ESPERA_TRAS_F1 = 0.06
+PERDIDA_OBJETIVO = 0.30
+
 NOMBRE_VENTANA = "RO Bot - Detector Mi Gao"
 
 
@@ -38,6 +46,10 @@ class MiGaoApp:
 
         self.ultimo_tiempo = time.perf_counter()
         self.fps = 0.0
+        self.ultimo_ataque = 0.0
+        self.ultima_fly_wing = 0.0
+        self.sin_objetivo_desde = None
+        pydirectinput.PAUSE = 0
 
         contenedor = ttk.Frame(root, padding=16)
         contenedor.grid(row=0, column=0, sticky="nsew")
@@ -90,7 +102,7 @@ class MiGaoApp:
 
         ttk.Label(
             contenedor,
-            text="Esta version solo detecta. No pulsa teclas ni hace clics.",
+            text="Automatico: F2 para buscar; F1 + clic para atacar.",
             foreground="#666666",
             wraplength=340
         ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 0))
@@ -102,6 +114,10 @@ class MiGaoApp:
         if self.cerrando:
             return
         self.activo = True
+        ahora = time.perf_counter()
+        self.ultimo_ataque = ahora
+        self.ultima_fly_wing = 0.0
+        self.sin_objetivo_desde = ahora
         self.estado_var.set("BUSCANDO")
         self.iniciar_btn.configure(state="disabled")
         self.pausar_btn.configure(state="normal", text="Pausar")
@@ -111,6 +127,7 @@ class MiGaoApp:
         if not self.activo:
             return
         self.activo = False
+        self.sin_objetivo_desde = None
         self.estado_var.set("PAUSADO")
         self.coords_var.set("Objetivo: —")
         self.iniciar_btn.configure(state="normal")
@@ -118,6 +135,7 @@ class MiGaoApp:
 
     def detener(self):
         self.activo = False
+        self.sin_objetivo_desde = None
         self.estado_var.set("DETENIDO")
         self.coords_var.set("Objetivo: —")
         self.iniciar_btn.configure(state="normal")
@@ -193,6 +211,32 @@ class MiGaoApp:
 
         return vista, objetivo
 
+    def gestionar_acciones(self, objetivo, ahora):
+        """Ataca al objetivo elegido o usa Fly Wing cuando no hay ninguno."""
+        if objetivo is not None:
+            self.sin_objetivo_desde = None
+
+            if ahora - self.ultimo_ataque >= INTERVALO_ATAQUE:
+                cx, cy = objetivo
+                abs_x = REGION["left"] + cx
+                abs_y = REGION["top"] + cy
+
+                # Orden confirmado: primero F1 y despues clic izquierdo.
+                pydirectinput.press("f1")
+                time.sleep(ESPERA_TRAS_F1)
+                pydirectinput.click(abs_x, abs_y)
+                self.ultimo_ataque = time.perf_counter()
+            return
+
+        # Toleramos pequeños fallos puntuales del detector.
+        if self.sin_objetivo_desde is None:
+            self.sin_objetivo_desde = ahora
+
+        if ahora - self.sin_objetivo_desde >= PERDIDA_OBJETIVO:
+            if ahora - self.ultima_fly_wing >= INTERVALO_FLY_WING:
+                pydirectinput.press("f2")
+                self.ultima_fly_wing = time.perf_counter()
+
     def actualizar(self):
         if self.cerrando:
             return
@@ -209,6 +253,8 @@ class MiGaoApp:
                     self.fps = fps_actual if self.fps == 0 else (
                         self.fps * 0.8 + fps_actual * 0.2
                     )
+
+                self.gestionar_acciones(objetivo, ahora)
 
                 if objetivo is None:
                     self.estado_var.set("BUSCANDO")
@@ -230,6 +276,7 @@ class MiGaoApp:
 
             except Exception as error:
                 self.activo = False
+                self.sin_objetivo_desde = None
                 self.estado_var.set("ERROR")
                 self.coords_var.set(str(error))
                 self.iniciar_btn.configure(state="normal")
